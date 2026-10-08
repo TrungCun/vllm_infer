@@ -281,6 +281,8 @@ func TestCancelledWaiterDoesNotCancelSharedWake(t *testing.T) {
 	eventually(t, func() bool { return b.wakes.Load() == 1 })
 	cancel()
 	if err := <-first; err == nil { t.Fatal("expected cancellation") }
+	eventually(t, func() bool { return activeIs(g, 0) })
+	if !phaseIs(g, waking) || b.generations.Load() != 0 { t.Fatal("cancelled waiter reached inference or cancelled wake") }
 	second := make(chan error, 1)
 	go func() {
 		status, err := doPost(server.Client(), server.URL)
@@ -291,6 +293,11 @@ func TestCancelledWaiterDoesNotCancelSharedWake(t *testing.T) {
 	close(gate)
 	if err := <-second; err != nil { t.Fatal(err) }
 	if b.wakes.Load() != 1 { t.Fatal("shared wake was cancelled") }
+	if b.generations.Load() != 1 { t.Fatal("cancelled waiter was forwarded") }
+	g.mu.Lock()
+	disabled := g.sleepDisabled
+	g.mu.Unlock()
+	if disabled { t.Fatal("cancelling a waiter disabled auto-sleep") }
 }
 
 func TestInitializationRetriesWhenBackendNotReady(t *testing.T) {
@@ -538,4 +545,34 @@ func TestAwakeInferenceIsConcurrent(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		if err := <-results; err != nil { t.Fatal(err) }
 	}
+}
+
+func TestCancelledBeforeProxyKeepsAutoSleep(t *testing.T) {
+	b := &fakeBackend{}
+	g, _ := fixture(t, b)
+	g.mu.Lock()
+	g.state = awake
+	g.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}")).WithContext(ctx)
+	g.ServeHTTP(httptest.NewRecorder(), req)
+	if b.generations.Load() != 0 { t.Fatal("forwarded a cancelled request") }
+	g.mu.Lock()
+	disabled := g.sleepDisabled
+	active := g.active
+	g.mu.Unlock()
+	if disabled || active != 0 { t.Fatal("cancelled request disabled sleep or leaked active count") }
+}
+
+func TestOversizedQueuedBodyDoesNotWake(t *testing.T) {
+	b := &fakeBackend{asleep: true}
+	g, _ := fixture(t, b)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
+	req.ContentLength = maxQueuedBody + 1
+	response := httptest.NewRecorder()
+	g.ServeHTTP(response, req)
+	if response.Code != http.StatusRequestEntityTooLarge { t.Fatalf("got HTTP %d", response.Code) }
+	if b.wakes.Load() != 0 || b.generations.Load() != 0 { t.Fatal("rejected upload woke or reached backend") }
+	if !activeIs(g, 0) || !phaseIs(g, unknown) { t.Fatal("rejected upload leaked state") }
 }

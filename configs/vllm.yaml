@@ -1,7 +1,15 @@
 model: Qwen/Qwen2.5-Coder-7B-Instruct-AWQ
 
 dtype: half
+# Tong token prompt + output cua moi request.
 max-model-len: 2048
 gpu-memory-utilization: 0.85
+
+# Muc khoi dau de benchmark, chua phai gia tri toi uu cho GPU.
+max-num-seqs: 16
+# Ngan sach token cho moi buoc xu ly, gom prefill va decode.
+max-num-batched-tokens: 2048
+enable-chunked-prefill: true
+enable-prefix-caching: true
 
 enable-sleep-mode: true

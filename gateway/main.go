@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"io"
 	"context"
 	"encoding/json"
 	"errors"
@@ -27,6 +29,9 @@ const (
 	waking phase = "waking"
 	faulted phase = "faulted"
 )
+
+// Bound RAM used by each request queued during a sleep/wake transition.
+const maxQueuedBody = 32 << 20
 
 type settings struct {
 	upstream *url.URL
@@ -135,6 +140,36 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Bound readiness waiting, not a long generation or stream.
 	var err error
 	if !ready {
+		// net/http detects HTTP/1 client disconnects only after reading the
+		// complete request body. Consume it before waiting for the shared wake.
+		// The awake path keeps streaming uploads directly to the backend.
+		if r.Body != nil && r.Body != http.NoBody {
+			if r.ContentLength > maxQueuedBody {
+				writeError(w, http.StatusRequestEntityTooLarge, "request_too_large",
+					"Request body exceeds 32 MiB while waiting for vLLM readiness")
+				return
+			}
+			body := http.MaxBytesReader(w, r.Body, maxQueuedBody)
+			controller := http.NewResponseController(w)
+			_ = controller.SetReadDeadline(time.Now().Add(g.cfg.controlTimeout))
+			payload, readErr := io.ReadAll(body)
+			_ = body.Close()
+			_ = controller.SetReadDeadline(time.Time{})
+			if readErr != nil {
+				if r.Context().Err() == nil {
+					var tooLarge *http.MaxBytesError
+					if errors.As(readErr, &tooLarge) {
+						writeError(w, http.StatusRequestEntityTooLarge, "request_too_large",
+							"Request body exceeds 32 MiB while waiting for vLLM readiness")
+					} else {
+						writeError(w, http.StatusBadRequest, "request_body_error",
+							"Could not read request body before waiting for vLLM readiness")
+					}
+				}
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(payload))
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), g.cfg.controlTimeout)
 		err = g.ensureAwake(ctx)
 		cancel()
@@ -143,6 +178,10 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Context().Err() == nil {
 			writeError(w, http.StatusServiceUnavailable, "backend_unavailable", err.Error())
 		}
+		return
+	}
+	// Wake completion and client cancellation may arrive at the same time.
+	if r.Context().Err() != nil {
 		return
 	}
 	defer func() {

@@ -50,3 +50,7 @@ docker compose restart vllm gateway
 ```
 
 Độ trễ gateway chưa được đo trên hệ thống thực tế. Có `main_test.go` và `benchmark.py` để kiểm tra.
+
+Khi phải chờ wake/readiness, gateway đọc body trước để phát hiện client hủy request.
+Body trên nhánh này giới hạn 32 MiB (vượt giới hạn trả `413`), thời gian đọc tối đa
+bằng `CONTROL_TIMEOUT`. Nhánh đang thức vẫn chuyển tiếp body trực tiếp.
