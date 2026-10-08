@@ -1,0 +1,39 @@
+services:
+  gateway:
+    build: ./gateway
+    ports:
+      - "127.0.0.1:9094:8000"
+    environment:
+      UPSTREAM_URL: http://vllm:8000
+      IDLE_TIMEOUT: "${IDLE_TIMEOUT:-30m}"
+      CONTROL_TIMEOUT: "${CONTROL_TIMEOUT:-60s}"
+    depends_on:
+      - vllm
+    stop_grace_period: 15s
+
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-qwen
+
+    volumes:
+      - ./configs/vllm.yaml:/config/vllm.yaml:ro
+
+      # Hugging Face cache
+      - ./data/huggingface:/root/.cache/huggingface
+
+    environment:
+      VLLM_SERVER_DEV_MODE: "1"
+    ipc: host
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities:
+                - gpu
+
+    command:
+      - --config
+      - /config/vllm.yaml

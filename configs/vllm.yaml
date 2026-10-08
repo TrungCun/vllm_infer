@@ -1,0 +1,7 @@
+model: Qwen/Qwen2.5-Coder-7B-Instruct-AWQ
+
+dtype: half
+max-model-len: 2048
+gpu-memory-utilization: 0.85
+
+enable-sleep-mode: true
