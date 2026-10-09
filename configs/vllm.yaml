@@ -1,15 +1,20 @@
-model: Qwen/Qwen2.5-Coder-7B-Instruct-AWQ
+model: google/gemma-4-E4B-it-qat-mobile-ct
 
-dtype: half
+dtype: auto
 # Tong token prompt + output cua moi request.
-max-model-len: 2048
+max-model-len: 1024
 gpu-memory-utilization: 0.85
 
 # Muc khoi dau de benchmark, chua phai gia tri toi uu cho GPU.
-max-num-seqs: 16
+max-num-seqs: 1
 # Ngan sach token cho moi buoc xu ly, gom prefill va decode.
-max-num-batched-tokens: 2048
+max-num-batched-tokens: 512
 enable-chunked-prefill: true
 enable-prefix-caching: true
 
 enable-sleep-mode: true
+
+limit-mm-per-prompt:
+  image: 0
+  audio: 0
+  video: 0

@@ -23,6 +23,8 @@ services:
 
     environment:
       VLLM_SERVER_DEV_MODE: "1"
+      VLLM_WSL2_ENABLE_PIN_MEMORY: "1"
+      VLLM_LOGGING_LEVEL: "DEBUG"
     ipc: host
 
     deploy:
